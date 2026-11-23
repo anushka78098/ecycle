@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<HBox xmlns="http://javafx.com/javafx/21" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.ecycle.frontend.view.RegisterController" styleClass="auth-root">
+  <VBox styleClass="auth-hero" prefWidth="380" alignment="CENTER_LEFT" spacing="18">
+    <padding><Insets top="40" right="40" bottom="40" left="40"/></padding>
+    <Label text="E-CYCLE" styleClass="hero-brand"/>
+    <Label text="Join the circular economy." styleClass="hero-title" wrapText="true"/>
+    <Label text="Sellers list devices and waste. Buyers, refurbishers and recyclers bid and buy. Disputes are handled by independent resolvers." styleClass="hero-sub" wrapText="true"/>
+  </VBox>
+  <StackPane HBox.hgrow="ALWAYS" styleClass="auth-panel">
+    <ScrollPane fitToWidth="true" styleClass="clear-scroll" maxWidth="520">
+      <VBox spacing="10" maxWidth="460">
+        <padding><Insets top="24" right="10" bottom="24" left="10"/></padding>
+        <Label text="Create your account" styleClass="auth-title"/>
+        <Label text="I want to"/>
+        <ComboBox fx:id="role" maxWidth="Infinity"/>
+        <Label text="Full name"/> <TextField fx:id="fullName" styleClass="input"/>
+        <Label text="Email"/> <TextField fx:id="email" styleClass="input"/>
+        <Label text="Phone (optional)"/> <TextField fx:id="phone" styleClass="input"/>
+        <Label text="City"/> <TextField fx:id="city" styleClass="input"/>
+        <Label fx:id="orgLabel" text="Business name (optional)"/> <TextField fx:id="organization" styleClass="input"/>
+        <Label fx:id="typeLabel" text="Buyer type"/> <ComboBox fx:id="buyerType" maxWidth="Infinity"/>
+        <Label text="Password (min 8 characters, letters and digits)"/>
+        <StackPane><PasswordField fx:id="passwordHidden" styleClass="input"/><TextField fx:id="passwordShown" styleClass="input" visible="false"/></StackPane>
+        <Label text="Confirm password"/> <PasswordField fx:id="confirm" styleClass="input"/>
+        <CheckBox fx:id="showPassword" text="Show password"/>
+        <Label fx:id="error" styleClass="error-text" wrapText="true"/>
+        <Button text="Create account" onAction="#onRegister" styleClass="btn-primary" maxWidth="Infinity"/>
+        <Hyperlink text="Back to sign in" onAction="#onBack"/>
+      </VBox>
+    </ScrollPane>
+  </StackPane>
+</HBox>
