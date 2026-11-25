@@ -1,5 +1,5 @@
 @echo off
 cd /d %~dp0..
-docker compose up -d db mongo
 set SPRING_PROFILES_ACTIVE=dev
-mvn -q -pl backend -am spring-boot:run
+set MAVEN_OPTS=-Duser.timezone=UTC
+mvn -q -pl backend -am org.springframework.boot:spring-boot-maven-plugin:3.3.5:run
