@@ -14,7 +14,11 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.File;
 import java.util.*;
 import javafx.geometry.Insets;
+import javafx.scene.control.Button;
 import javafx.scene.control.CheckBox;
+import javafx.scene.control.Label;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
 
@@ -24,7 +28,7 @@ public final class SellerViews {
 
     public static ResourceView listings() {
         ResourceView v = new ResourceView("My listings", "Create products and waste listings, track approval, upload photos", () -> ApiClient.get("/api/listings/mine"));
-        v.col("#", "id").col("Product", "name").col("Category", "categoryName").money("Price", "expectedPrice").badge("Status", "status").col("Score", n -> String.format("%.0f", J.d(n, "score.overall")))
+        v.col("#", "id").col("Product", "name").nodeColumn("Photos", SellerViews::photoPreviews, 190).col("Category", "categoryName").money("Price", "expectedPrice").badge("Status", "status").col("Score", n -> String.format("%.0f", J.d(n, "score.overall")))
                 .badge("Pathway", "pathway").badge("Hazard", "hazardLevel").col("Reason", "rejectionReason")
                 .tool("New listing", () -> form(null, v))
                 .action("Edit", n -> Set.of("PENDING_APPROVAL", "REJECTED").contains(J.s(n, "status")), n -> form(n, v))
@@ -32,6 +36,26 @@ public final class SellerViews {
                 .action("Withdraw", "btn-danger", n -> Set.of("PENDING_APPROVAL", "REJECTED").contains(J.s(n, "status")), n -> Alerts.confirm("Withdraw this listing? History is kept.", () -> Async.run(() -> ApiClient.delete("/api/listings/" + J.l(n, "id")), r -> v.reload())))
                 .action("Details", n -> true, n -> new ProductDialog(J.l(n, "id")).show());
         return v;
+    }
+
+    private static javafx.scene.Node photoPreviews(JsonNode listing) {
+        JsonNode ids = listing.path("imageIds");
+        if (!ids.isArray() || ids.isEmpty()) return UI.label("No photos", "muted");
+
+        HBox previews = new HBox(4);
+        previews.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+        long listingId = J.l(listing, "id");
+        int shown = Math.min(3, ids.size());
+        for (int i = 0; i < shown; i++) {
+            StackPane thumbnail = new StackPane(ImageCache.view(
+                    "/api/listings/" + listingId + "/images/" + ids.get(i).asLong(), 44, 36));
+            thumbnail.setMinSize(44, 36);
+            thumbnail.setPrefSize(44, 36);
+            thumbnail.setMaxSize(44, 36);
+            previews.getChildren().add(thumbnail);
+        }
+        if (ids.size() > shown) previews.getChildren().add(UI.label("+" + (ids.size() - shown), "muted"));
+        return previews;
     }
 
     private static void photos(JsonNode n, ResourceView v) {
@@ -57,7 +81,18 @@ public final class SellerViews {
                     FormDialog.text("pickupCity", "Pickup city", true, e ? J.s(ex, "pickupCity") : null), FormDialog.text("pickupAddress", "Pickup address", false, e ? J.s(ex, "pickupAddress") : null),
                     FormDialog.area("description", "Description", false), FormDialog.check("auctionEnabled", "Sell via reverse auction (bidders compete on price and recovery capability)", e && J.b(ex, "auctionEnabled")),
                     FormDialog.integer("auctionHours", "Auction duration in hours (1-720)", false, "72"), FormDialog.num("auctionMinPrice", "Auction minimum price (INR)", false, null));
+            List<File> selectedPhotos = new ArrayList<>();
+            int existingPhotos = e ? ex.path("imageIds").size() : 0;
+            int remainingPhotoSlots = Math.max(0, 8 - existingPhotos);
+            Label photoSummary = UI.label(existingPhotos + " of 8 photo slots already used.", "muted");
+            Button choosePhotos = UI.secondary("Choose photos", () -> {});
+            choosePhotos.setDisable(remainingPhotoSlots == 0);
+            Button clearPhotos = UI.secondary("Clear selection", () -> {});
+            clearPhotos.setDisable(true);
+            configurePhotoSelection(selectedPhotos, choosePhotos, clearPhotos, photoSummary, existingPhotos);
             VBox box = new VBox(6); box.setPadding(new Insets(6));
+            box.getChildren().addAll(UI.label("Product photos (JPG, PNG, WEBP; max 5 MB each, 8 per listing)", "section-title"),
+                    new HBox(8, choosePhotos, clearPhotos), photoSummary);
             box.getChildren().add(UI.label("Inspection questionnaire (tick everything that applies). This is a self-reported checklist, not a hardware diagnostic.", "section-title"));
             Map<String, CheckBox> checks = new LinkedHashMap<>();
             for (JsonNode r : data[1]) { if (!r.path("enabled").asBoolean()) continue; CheckBox cb = new CheckBox(J.s(r, "description")); cb.setWrapText(true); checks.put(J.s(r, "code"), cb); box.getChildren().add(cb); }
@@ -66,8 +101,39 @@ public final class SellerViews {
                 if (!body.has("quantity")) body.put("quantity", 1);
                 body.put("categoryId", body.get("categoryId").asLong()); body.put("auctionEnabled", body.path("auctionEnabled").asBoolean(false));
                 return e ? ApiClient.put("/api/listings/" + J.l(ex, "id"), body) : ApiClient.post("/api/listings", body);
-            }, res -> { Alerts.info("Saved. Circular Value Score " + String.format("%.1f", J.d(res, "score.overall")) + ", recommended pathway " + J.human(J.s(res, "score.recommendedPathway"))
-                    + ", hazard level " + J.human(J.s(res, "hazardLevel")) + ". Awaiting admin approval."); v.reload(); });
+            }, res -> {
+                String saved = "Saved. Circular Value Score " + String.format("%.1f", J.d(res, "score.overall")) + ", recommended pathway "
+                        + J.human(J.s(res, "score.recommendedPathway")) + ", hazard level " + J.human(J.s(res, "hazardLevel")) + ". Awaiting moderation.";
+                if (selectedPhotos.isEmpty()) { Alerts.info(saved); v.reload(); return; }
+                long listingId = J.l(res, "id");
+                Async.run(() -> ApiClient.upload("/api/listings/" + listingId + "/images", Map.of(), "files", List.copyOf(selectedPhotos)),
+                        uploaded -> { Alerts.info(saved + " " + uploaded.size() + " photo(s) uploaded."); v.reload(); },
+                        t -> { v.reload(); Alerts.error(new IllegalStateException("Listing saved, but photo upload failed: " + t.getMessage(), t)); });
+            });
+        });
+    }
+
+    private static void configurePhotoSelection(List<File> selectedPhotos, Button choose, Button clear, Label summary, int existingPhotos) {
+        choose.setOnAction(e -> {
+            FileChooser fc = new FileChooser();
+            fc.setTitle("Select product photos (JPG, PNG, WEBP, max 5 MB each)");
+            fc.getExtensionFilters().add(new FileChooser.ExtensionFilter("Images", "*.jpg", "*.jpeg", "*.png", "*.webp"));
+            List<File> files = fc.showOpenMultipleDialog(Nav.stage());
+            if (files == null || files.isEmpty()) return;
+            int remaining = Math.max(0, 8 - existingPhotos);
+            if (files.size() > remaining) {
+                Alerts.info("You can add up to " + remaining + " more photo(s) to this listing.");
+                return;
+            }
+            selectedPhotos.clear();
+            selectedPhotos.addAll(files);
+            summary.setText(selectedPhotos.size() + " selected: " + String.join(", ", selectedPhotos.stream().map(File::getName).toList()));
+            clear.setDisable(false);
+        });
+        clear.setOnAction(e -> {
+            selectedPhotos.clear();
+            summary.setText(existingPhotos + " of 8 photo slots already used.");
+            clear.setDisable(true);
         });
     }
 

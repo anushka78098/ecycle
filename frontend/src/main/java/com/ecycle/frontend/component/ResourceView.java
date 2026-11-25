@@ -57,6 +57,19 @@ public class ResourceView extends VBox {
         if (width > 0) c.setPrefWidth(width);
         table.getColumns().add(c); return this;
     }
+    public ResourceView nodeColumn(String header, Function<JsonNode, Node> content, double width) {
+        TableColumn<JsonNode, JsonNode> c = new TableColumn<>(header);
+        c.setCellValueFactory(cd -> new javafx.beans.property.SimpleObjectProperty<>(cd.getValue()));
+        c.setCellFactory(x -> new TableCell<>() {
+            @Override protected void updateItem(JsonNode n, boolean empty) {
+                super.updateItem(n, empty);
+                setText(null);
+                setGraphic(empty || n == null ? null : content.apply(n));
+            }
+        });
+        if (width > 0) c.setPrefWidth(width);
+        table.getColumns().add(c); return this;
+    }
     public ResourceView badge(String header, String path) { return col(header, n -> J.s(n, path), true, 0); }
     public ResourceView money(String header, String path) { return col(header, n -> J.money(n, path)); }
     public ResourceView date(String header, String path) { return col(header, n -> J.date(n, path)); }
