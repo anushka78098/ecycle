@@ -43,7 +43,7 @@ services:
       ASSISTANT_PROVIDER: ${ASSISTANT_PROVIDER:-auto}
       ASSISTANT_API_KEY: ${ASSISTANT_API_KEY:-}
       ASSISTANT_BASE_URL: ${ASSISTANT_BASE_URL:-}
-      ASSISTANT_MODEL: ${ASSISTANT_MODEL:-gemini-3.8-flash}
+      ASSISTANT_MODEL: ${ASSISTANT_MODEL:-gemini-3.1-flash-lite}
       SEED_DEMO: ${SEED_DEMO:-false}
     ports: ["8080:8080"]
     volumes: ["ecycle-uploads:/app/data/uploads"]

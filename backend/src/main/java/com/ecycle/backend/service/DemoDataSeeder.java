@@ -23,7 +23,10 @@ import org.springframework.stereotype.Component;
 public class DemoDataSeeder {
     private static final Logger log = LoggerFactory.getLogger(DemoDataSeeder.class);
     private final AuthService auth; private final SellerProfileRepository sellers; private final BuyerProfileRepository buyers; private final ProductCategoryRepository categories;
+    private final UserRepository users; private final ListingRepository listingRepo; private final PurchaseOrderRepository orderRepo;
+    private final EnvironmentalImpactRepository impactRepo; private final DisputeRepository disputeRepo;
     private final ListingService listingService; private final ListingImageRepository listingImages; private final OfferService offers; private final OrderService orders;
+    private final LifecycleService lifecycle; private final HazardService hazard; private final PassportService passports;
     private final PaymentService payments; private final ReviewService reviews; private final DisputeService disputes; private final DisputeEvidenceRepository evidenceRepo;
     private final ChatService chat; private final AuctionService auctions; private final WishlistService wishlist; private final FileStorageService storage;
 
@@ -92,7 +95,8 @@ public class DemoDataSeeder {
         for (int i = 0; i < 60; i++) {
             Cat c = CATALOG.get(i % CATALOG.size()); int v = i / CATALOG.size(); AppUser s = su.get(i % su.size());
             int idx = i;
-            ListingDto d = create(s, c, v, CITIES[i % CITIES.length], cat, Map.of(), false, idx < 20 ? 2 : 1, i);
+            Map<String, Boolean> answers = i < 2 ? Map.of("STORAGE_DEVICE_PRESENT", true) : Map.of();
+            ListingDto d = create(s, c, v, CITIES[i % CITIES.length], cat, answers, false, idx < 20 ? 2 : 1, i);
             if (d != null) { normal.add(d); step("approve", () -> listingService.approve(moderator.getId(), d.id())); }
         }
         List<ListingDto> hazardous = new ArrayList<>();
@@ -109,9 +113,11 @@ public class DemoDataSeeder {
             if (d != null) { auctionListings.add(d); step("approve", () -> listingService.approve(moderator.getId(), d.id())); }
         }
         log.info("Demo listings: {} normal, {} hazardous, {} auctions", normal.size(), hazardous.size(), auctionListings.size());
+        seedSanitizationSample(su);
 
         Map<Long, AppUser> byId = new HashMap<>(); su.forEach(u -> byId.put(u.getId(), u)); bu.forEach(u -> byId.put(u.getId(), u));
         List<OrderDto> placed = new ArrayList<>();
+        List<Long> deliveredOrderIds = new ArrayList<>();
         for (int n = 0; n < 40 && 20 + n < normal.size(); n++) {                       // orders: 5 paid, 5 shipped, 30 delivered
             ListingDto l = normal.get(20 + n); AppUser buyer = bu.get(n % bu.size()); AppUser seller = byId.get(l.sellerId());
             final int k = n;
@@ -120,17 +126,19 @@ public class DemoDataSeeder {
                 PaymentInitDto p = payments.initiate(au(buyer, Role.BUYER), o.id());
                 payments.mockConfirm(au(buyer, Role.BUYER), p.paymentId());
                 if (k >= 5) orders.updateShipment(au(seller, Role.SELLER), o.id(), new ShipmentRequest("BlueDart", "BD" + (710000 + k), ShipmentStatus.SHIPPED));
-                if (k >= 10) orders.confirmDelivery(au(buyer, Role.BUYER), o.id());
+                if (k >= 10) { orders.confirmDelivery(au(buyer, Role.BUYER), o.id()); deliveredOrderIds.add(o.id()); }
                 placed.add(o);
             });
         }
         log.info("Demo orders: {}", placed.size());
+        seedDemoImpacts(deliveredOrderIds);
+        seedComponentSample(deliveredOrderIds, byId);
 
         for (int n = 20; n < placed.size() && n < 40; n++) {                           // 20 reviews on undisputed delivered orders
             OrderDto o = placed.get(n); final int k = n;
             step("review", () -> reviews.create(au(byId.get(o.buyerId()), Role.BUYER), new ReviewRequest(o.id(), 3 + k % 3, REVIEW_TEXT[k % REVIEW_TEXT.length])));
         }
-        for (int d = 0; d < 20 && d < placed.size(); d++) seedDispute(d, placed.get(d), byId, resolverA, resolverB);
+        seedMissingDisputes(placed.stream().map(OrderDto::id).toList(), byId, resolverA, resolverB);
 
         List<OfferDto> madeOffers = new ArrayList<>();
         for (int i = 0; i < 20 && i < normal.size(); i++) {                            // 20 offers, 20 chat threads, 20 wishlist entries on the listings still for sale
@@ -161,6 +169,123 @@ public class DemoDataSeeder {
         }
         log.info("Demo data ready. Logins: seller@ / seller2@ / buyer@ / buyer2@ / recycler@ / resolver@ / resolver2@ ecycle.local (see README for passwords). Bids attempted: {}", bids);
         return moderator;
+    }
+
+    public void backfillExistingDemo() {
+        List<AppUser> demoSellers = Arrays.stream(SELLERS).map(row -> users.findByEmailIgnoreCase(row[0]).orElse(null))
+                .filter(Objects::nonNull).toList();
+        List<AppUser> demoBuyers = Arrays.stream(BUYERS).map(row -> users.findByEmailIgnoreCase(row[0]).orElse(null))
+                .filter(Objects::nonNull).toList();
+        AppUser resolverA = users.findByEmailIgnoreCase("resolver@ecycle.local").orElse(null);
+        AppUser resolverB = users.findByEmailIgnoreCase("resolver2@ecycle.local").orElse(null);
+        Map<Long, AppUser> byId = new HashMap<>();
+        demoSellers.forEach(u -> byId.put(u.getId(), u));
+        demoBuyers.stream().filter(Objects::nonNull).forEach(u -> byId.put(u.getId(), u));
+        List<Long> orderIds = new ArrayList<>();
+        demoSellers.forEach(s -> orderRepo.findBySellerIdOrderByCreatedAtDesc(s.getId()).forEach(o -> orderIds.add(o.getId())));
+        demoBuyers.stream().filter(Objects::nonNull).forEach(b -> orderRepo.findByBuyerIdOrderByCreatedAtDesc(b.getId()).forEach(o -> orderIds.add(o.getId())));
+        List<Long> uniqueOrderIds = new ArrayList<>(new LinkedHashSet<>(orderIds));
+
+        seedDemoImpacts(uniqueOrderIds);
+        seedComponentSample(uniqueOrderIds, byId);
+        if (resolverA != null && resolverB != null) {
+            seedMissingDisputes(uniqueOrderIds, byId, resolverA, resolverB);
+        } else {
+            log.warn("Skipping demo dispute backfill because the resolver demo accounts are missing");
+        }
+        seedSanitizationSample(demoSellers);
+    }
+
+    private void seedDemoImpacts(List<Long> orderIds) {
+        for (Long orderId : orderIds) {
+            step("demo environmental outcome for order " + orderId, () -> {
+                PurchaseOrder order = orderRepo.findById(orderId).orElseThrow();
+                if (order.getStatus() != OrderStatus.DELIVERED) return;
+                Listing listing = listingRepo.findById(order.getListingId()).orElseThrow();
+                if (impactRepo.findByListingIdOrderByCreatedAtDesc(listing.getId()).isEmpty()) {
+                    lifecycle.recordOutcome(listing, Pathway.REUSE, order.getBuyerId(),
+                            "Demo estimate: reuse outcome; not a measured environmental claim.", null);
+                }
+            });
+        }
+    }
+
+    private void seedComponentSample(List<Long> orderIds, Map<Long, AppUser> byId) {
+        step("demo component passport sample", () -> {
+            List<PurchaseOrder> delivered = orderIds.stream().map(orderRepo::findById).flatMap(Optional::stream)
+                    .filter(o -> o.getStatus() == OrderStatus.DELIVERED).toList();
+            for (PurchaseOrder order : delivered) {
+                Listing listing = listingRepo.findById(order.getListingId()).orElseThrow();
+                if (!categories.findById(listing.getCategoryId()).map(ProductCategory::isDismantlable).orElse(false)) continue;
+                AppUser buyer = byId.get(order.getBuyerId());
+                if (buyer == null) continue;
+                PassportDto root = passports.forListing(au(buyer, Role.BUYER), listing.getId());
+                if (!root.children().isEmpty()) return;
+            }
+            for (PurchaseOrder order : delivered) {
+                Listing listing = listingRepo.findById(order.getListingId()).orElseThrow();
+                if (!categories.findById(listing.getCategoryId()).map(ProductCategory::isDismantlable).orElse(false)) continue;
+                AppUser buyer = byId.get(order.getBuyerId());
+                if (buyer == null) continue;
+                PassportDto root = passports.forListing(au(buyer, Role.BUYER), listing.getId());
+                passports.dismantle(au(buyer, Role.BUYER), root.code(), new DismantleRequest(List.of(
+                        new ComponentSpec("Memory module", "DEMO-SIMULATED recovered memory module"),
+                        new ComponentSpec("Storage device", "DEMO-SIMULATED recovered storage device"))));
+                return;
+            }
+        });
+    }
+
+    private void seedSanitizationSample(List<AppUser> demoSellers) {
+        step("demo sanitization sample", () -> {
+            Map<AppUser, List<ListingDto>> sellerListings = new LinkedHashMap<>();
+            for (AppUser seller : demoSellers) {
+                AuthUser actor = au(seller, Role.SELLER);
+                sellerListings.put(seller, listingService.mine(actor));
+            }
+            for (var entry : sellerListings.entrySet()) {
+                AuthUser actor = au(entry.getKey(), Role.SELLER);
+                for (ListingDto listing : entry.getValue()) {
+                    if (listing.status() != ListingStatus.APPROVED || !listing.requiresSanitization()) continue;
+                    List<SanitizationDto> records = hazard.forListing(actor, listing.id());
+                    if (records.stream().anyMatch(r -> r.status() == SanitizationStatus.SUBMITTED
+                            || (r.evidenceRef() != null && r.evidenceRef().startsWith("DEMO-SYNTHETIC-")))) return;
+                }
+            }
+            for (var entry : sellerListings.entrySet()) {
+                AuthUser actor = au(entry.getKey(), Role.SELLER);
+                for (ListingDto listing : entry.getValue()) {
+                    if (listing.status() != ListingStatus.APPROVED) continue;
+                    ListingDto eligible = listing;
+                    if (!eligible.requiresSanitization()) {
+                        hazard.reassess(actor, eligible.id(), Map.of("STORAGE_DEVICE_PRESENT", true));
+                        eligible = listingService.mine(actor).stream().filter(l -> l.id().equals(listing.id())).findFirst().orElseThrow();
+                    }
+                    if (hazard.forListing(actor, eligible.id()).isEmpty()) {
+                        hazard.submit(actor, eligible.id(), new SanitizationRequest(
+                                "DEMO SIMULATION - NOT A REAL ERASE", "Synthetic demo record",
+                                "DEMO-SYNTHETIC-NOT-REAL-DEVICE-EVIDENCE"));
+                        return;
+                    }
+                }
+            }
+        });
+    }
+
+    private void seedMissingDisputes(List<Long> orderIds, Map<Long, AppUser> byId, AppUser resolverA, AppUser resolverB) {
+        int existing = (int) orderIds.stream().filter(disputeRepo::existsByOrderId).count();
+        int index = existing;
+        if (index >= 20) return;
+        for (Long orderId : orderIds) {
+            if (index >= 20) return;
+            if (disputeRepo.existsByOrderId(orderId)) continue;
+            PurchaseOrder order = orderRepo.findById(orderId).orElse(null);
+            if (order == null || !byId.containsKey(order.getBuyerId()) || !byId.containsKey(order.getSellerId())) continue;
+            int disputeIndex = index;
+            step("prepare demo dispute " + disputeIndex,
+                    () -> seedDispute(disputeIndex, orders.toDto(order), byId, resolverA, resolverB));
+            if (disputeRepo.existsByOrderId(orderId)) index++;
+        }
     }
 
     private ListingDto create(AppUser seller, Cat c, int variant, String city, Map<String, Long> cat, Map<String, Boolean> hazard, boolean auction, int qty, int imgSeed) {

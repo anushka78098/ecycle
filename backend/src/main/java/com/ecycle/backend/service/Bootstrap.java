@@ -27,7 +27,11 @@ public class Bootstrap implements ApplicationRunner {
             if (props.getAdminPassword().isBlank()) log.warn("ADMIN_PASSWORD is not set: no bootstrap moderator created. Set ADMIN_EMAIL/ADMIN_PASSWORD to create one.");
             else { moderator = auth.createUser(props.getAdminEmail(), props.getAdminPassword(), "Platform Moderator", null, Role.RESOLVER); log.info("Bootstrap moderator (resolver) created: {}", props.getAdminEmail()); }
         }
-        if (!props.isSeedDemo() || users.findByEmailIgnoreCase("seller@ecycle.local").isPresent()) return;
+        if (!props.isSeedDemo()) return;
+        if (users.findByEmailIgnoreCase("seller@ecycle.local").isPresent()) {
+            demo.backfillExistingDemo();
+            return;
+        }
         demo.seed(moderator);
     }
 }

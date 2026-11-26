@@ -10,6 +10,7 @@ import com.ecycle.frontend.navigation.Menus;
 import com.ecycle.frontend.navigation.Nav;
 import com.ecycle.frontend.util.Async;
 import com.ecycle.frontend.util.J;
+import com.fasterxml.jackson.databind.JsonNode;
 import javafx.animation.KeyFrame;
 import javafx.fxml.FXML;
 import javafx.scene.Node;
@@ -42,7 +43,14 @@ public class ShellController {
         poll = new javafx.animation.Timeline(new KeyFrame(Duration.seconds(60), e -> refreshBell()));
         poll.setCycleCount(javafx.animation.Animation.INDEFINITE); poll.play(); refreshBell();
         LiveClient.start();   // real-time pushes (notifications, pickup status) over STOMP/WebSocket; polling above is only a fallback
-        unlisten = LiveClient.listen(ev -> { if ("NOTIFICATION".equals(ev.path("type").asText())) refreshBell(); });
+        unlisten = LiveClient.listen(ev -> {
+            if (!"NOTIFICATION".equals(ev.path("type").asText())) return;
+            refreshBell();
+            JsonNode notification = ev.path("payload");
+            if ("CHAT".equals(J.s(notification, "type"))) {
+                bell.setTooltip(new Tooltip(J.s(notification, "title") + "\n" + J.s(notification, "body")));
+            }
+        });
     }
 
     private void buildNav() {

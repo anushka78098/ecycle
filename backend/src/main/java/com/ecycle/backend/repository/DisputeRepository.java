@@ -6,6 +6,7 @@ import java.util.*;
 import org.springframework.data.jpa.repository.*;
 
 public interface DisputeRepository extends JpaRepository<Dispute, Long> {
+ boolean existsByOrderId(Long orderId);
  List<Dispute> findByRaisedByOrAgainstUserOrderByCreatedAtDesc(Long a, Long b);
  List<Dispute> findTop500ByOrderByCreatedAtDesc();
  List<Dispute> findByResolverIdOrderByCreatedAtDesc(Long id);

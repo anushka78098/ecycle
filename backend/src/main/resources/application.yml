@@ -6,6 +6,8 @@ server:
 spring:
   application:
     name: ecycle-backend
+  config:
+    import: optional:file:.env[.properties],optional:file:../.env[.properties]
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/ecycle}
     username: ${DB_USER:ecycle}
@@ -64,7 +66,7 @@ app:
     provider: ${ASSISTANT_PROVIDER:auto}      # auto (Gemini when a key is set) | gemini | openai | none (rule-based only)
     api-key: ${ASSISTANT_API_KEY:}
     base-url: ${ASSISTANT_BASE_URL:}   # blank = Gemini (https://generativelanguage.googleapis.com/v1beta/openai/); or e.g. http://localhost:11434/v1 (Ollama)
-    model: ${ASSISTANT_MODEL:}   # blank = gemini-3.8-flash (gpt-4o-mini when provider=openai)
+    model: ${ASSISTANT_MODEL:}   # blank = gemini-3.1-flash-lite (gpt-4o-mini when provider=openai)
     temperature: ${ASSISTANT_TEMPERATURE:0.2}
     timeout-seconds: ${ASSISTANT_TIMEOUT_SECONDS:60}
     memory-messages: ${ASSISTANT_MEMORY_MESSAGES:20}

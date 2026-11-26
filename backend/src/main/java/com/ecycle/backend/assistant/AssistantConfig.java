@@ -14,7 +14,7 @@ public class AssistantConfig {
     private static final Logger log = LoggerFactory.getLogger(AssistantConfig.class);
     public static final String DEFAULT_OPENAI = "https://api.openai.com/v1";
     public static final String DEFAULT_GEMINI = "https://generativelanguage.googleapis.com/v1beta/openai/";
-    public static final String DEFAULT_GEMINI_MODEL = "gemini-3.8-flash";
+    public static final String DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite";
     public static final String SYSTEM_PROMPT = """
             You are the E-CYCLE Eco-Assistant for an e-waste marketplace. Help users with e-waste questions (reuse, repair, recycling, batteries, data wiping, certificates, chain of custody) \
             and with their own E-CYCLE account using the provided tools.
@@ -35,9 +35,17 @@ public class AssistantConfig {
         String provider = p.getAssistantProvider() == null ? "auto" : p.getAssistantProvider().trim().toLowerCase();
         boolean hasKey = p.getAssistantApiKey() != null && !p.getAssistantApiKey().isBlank();
         boolean customBase = p.getAssistantBaseUrl() != null && !p.getAssistantBaseUrl().isBlank();
-        if (provider.equals("none") || provider.equals("rules") || (provider.equals("auto") && !hasKey && !customBase)) {
+        if (provider.equals("none") || provider.equals("rules")) {
+            log.info("AI assistant: rule-based mode explicitly configured");
+            return new Llm(null, "Rule-based mode explicitly configured");
+        }
+        if (provider.equals("auto") && !hasKey && !customBase) {
             log.info("AI assistant: no LLM configured, using the rule-based fallback (set ASSISTANT_API_KEY to a Gemini API key)");
-            return new Llm(null, "rules");
+            return new Llm(null, "Gemini API key missing; set ASSISTANT_API_KEY");
+        }
+        if (provider.equals("gemini") && !hasKey && !customBase) {
+            log.warn("ASSISTANT_PROVIDER=gemini but ASSISTANT_API_KEY is empty; using the rule-based fallback");
+            return new Llm(null, "Gemini API key missing; set ASSISTANT_API_KEY");
         }
         // auto + a key means Gemini; "openai" keeps the old behaviour; a custom base URL (Ollama, LM Studio...) always wins.
         boolean openai = provider.equals("openai");

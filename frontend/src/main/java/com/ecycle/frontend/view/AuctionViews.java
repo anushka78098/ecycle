@@ -9,11 +9,9 @@ import com.ecycle.frontend.util.Async;
 import com.ecycle.frontend.util.J;
 import com.ecycle.shared.Enums;
 import com.fasterxml.jackson.databind.JsonNode;
-import java.util.ArrayList;
 import java.util.List;
 import javafx.animation.Animation;
 import javafx.animation.KeyFrame;
-import javafx.collections.FXCollections;
 import javafx.geometry.Insets;
 import javafx.scene.Node;
 import javafx.scene.control.*;
@@ -26,20 +24,60 @@ public final class AuctionViews {
 
     private static String left(long secs) { return secs <= 0 ? "ended" : String.format("%dd %02dh %02dm", secs / 86400, (secs % 86400) / 3600, (secs % 3600) / 60); }
 
-    private static ResourceView list(String title, String sub, String path) {
-        ResourceView v = new ResourceView(title, sub, () -> ApiClient.get(path));
-        v.col("Auction", "id").col("Product", "listingName").badge("Status", "status").col("Ends", n -> J.date(n, "endsAt")).col("Time left", n -> left(J.l(n, "secondsRemaining")))
-                .col("Bids", "bidCount").money("Minimum", "minPrice").money("Highest offer", "highestPriceBid.price").col("Best score", n -> n.path("highestScoreBid").isNull() ? "" : String.format("%.1f", J.d(n, "highestScoreBid.circularBidScore")))
-                .action("Open auction", n -> true, n -> open(J.l(n, "id"))).onOpen(n -> open(J.l(n, "id")));
-        return v;
+    private static Node list(String title, String sub, String path) {
+        VBox root = new VBox(12); root.setPadding(new Insets(20));
+        FlowPane cards = UI.flow(16);
+        Label count = UI.label("", "muted");
+        Runnable[] reload = new Runnable[1];
+        reload[0] = () -> Async.run(() -> ApiClient.get(path), auctions -> {
+            cards.getChildren().clear();
+            count.setText(auctions.size() + " auction(s)");
+            if (auctions.isEmpty()) cards.getChildren().add(UI.card(UI.label("No auctions to show right now.", "muted")));
+            auctions.forEach(auction -> cards.getChildren().add(auctionCard(auction)));
+        });
+        root.getChildren().addAll(UI.pageHeader(title, sub, UI.secondary("Refresh", () -> reload[0].run())), count, UI.scroll(cards));
+        VBox.setVgrow(root.getChildren().get(2), Priority.ALWAYS);
+        reload[0].run();
+        return root;
     }
-    public static ResourceView browse() { return list("Reverse auctions", "Open material-recovery auctions. Only admin-verified buyers can bid.", "/api/auctions"); }
-    public static ResourceView mine() { return list("My auctions", "Auctions on your listings, or that you bid in", "/api/auctions/mine"); }
+    public static Node browse() { return list("Reverse auctions", "Browse material-recovery lots, compare bids and open an auction to place your offer.", "/api/auctions"); }
+    public static Node mine() { return list("My auctions", "Follow auctions for your listings and the bids you have placed.", "/api/auctions/mine"); }
+
+    private static Node auctionCard(JsonNode auction) {
+        long id = J.l(auction, "id"), listingId = J.l(auction, "listingId");
+        VBox card = new VBox(10); card.setPadding(new Insets(12)); card.setPrefWidth(340); card.setMaxWidth(340); card.getStyleClass().add("product-card");
+        StackPane photo = new StackPane(); photo.setPrefSize(314, 176); photo.setMinHeight(176); photo.getStyleClass().add("photo-ph");
+        photo.getChildren().add(UI.label("Loading listing photo...", "muted"));
+        Async.run(() -> ApiClient.get("/api/listings/" + listingId), listing -> {
+            photo.getChildren().clear();
+            JsonNode images = listing.path("imageIds");
+            if (images.isArray() && !images.isEmpty()) {
+                photo.getChildren().add(ImageCache.view("/api/listings/" + listingId + "/images/" + images.get(0).asLong(), 314, 176));
+            } else {
+                photo.getChildren().add(UI.label("No product photo", "muted"));
+            }
+        }, error -> {
+            photo.getChildren().setAll(UI.label("Listing preview unavailable", "muted"));
+            Alerts.error(error);
+        });
+
+        Label title = UI.label(J.s(auction, "listingName"), "section-title");
+        HBox status = UI.row(UI.badge(J.s(auction, "status")), UI.grow(), UI.label("Auction #" + id, "muted"));
+        Label time = UI.label("OPEN".equals(J.s(auction, "status")) ? "Closes in " + left(J.l(auction, "secondsRemaining")) : "Ended " + J.date(auction, "endsAt"), "muted");
+        Label bidCount = UI.label(J.l(auction, "bidCount") + " bid(s)  ·  Minimum " + J.money(auction, "minPrice"), "label");
+        JsonNode highestBid = auction.path("highestPriceBid");
+        Label highest = UI.label(highestBid.isNull() ? "No bids yet" : "Highest offer: " + J.money(auction, "highestPriceBid.price"), highestBid.isNull() ? "muted" : "price");
+        String score = auction.path("highestScoreBid").isNull() ? "No scored bids yet" :
+                String.format("Best Circular Bid Score: %.1f", J.d(auction, "highestScoreBid.circularBidScore"));
+        HBox actions = new HBox(8, UI.primary("Open auction", () -> open(id)), UI.secondary("View product", () -> new ProductDialog(listingId).show()));
+        card.getChildren().addAll(photo, status, title, time, bidCount, highest, UI.label(score, "muted"), actions);
+        card.setOnMouseClicked(e -> { if (e.getTarget() == card || e.getTarget() == title) open(id); });
+        return card;
+    }
 
     public static void open(long id) {
         Dialog<ButtonType> d = new Dialog<>(); d.setTitle("Auction #" + id); d.getDialogPane().getStylesheets().add(Nav.css());
         d.getDialogPane().setContent(panel(id)); d.getDialogPane().getButtonTypes().add(ButtonType.CLOSE); d.getDialogPane().setPrefSize(980, 660); d.setResizable(true); d.show();
-        d.setOnHidden(e -> { }); 
     }
 
     public static Node panel(long auctionId) {
@@ -62,28 +100,33 @@ public final class AuctionViews {
                 UI.label("Reference price (best known): " + J.money(a, "referencePrice") + "   |   Minimum bid: " + J.money(a, "minPrice") + "   |   Bids: " + J.l(a, "bidCount"), "muted"));
         HBox boards = new HBox(14, leader("Highest financial offer", a.path("highestPriceBid")), leader("Highest Circular Bid Score", a.path("highestScoreBid")));
         HBox.setHgrow(boards.getChildren().get(0), Priority.ALWAYS); HBox.setHgrow(boards.getChildren().get(1), Priority.ALWAYS);
-        TableView<JsonNode> t = new TableView<>(); t.setPrefHeight(260); t.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_FLEX_LAST_COLUMN);
-        addCol(t, "Time", n -> J.date(n, "createdAt")); addCol(t, "Bidder", n -> J.s(n, "bidderLabel")); addCol(t, "Price", n -> J.money(n, "price")); addCol(t, "Pathway", n -> J.human(J.s(n, "pathway")));
-        addCol(t, "Recovery", n -> J.s(n, "recoveryCapability")); addCol(t, "Env. perf.", n -> J.s(n, "environmentalPerformance")); addCol(t, "Circular Bid Score", n -> String.format("%.1f", J.d(n, "circularBidScore")));
-        addCol(t, "Recovery plan", n -> J.s(n, "recoveryPlan"));
-        List<JsonNode> rows = new ArrayList<>(); a.path("bids").forEach(rows::add); t.setItems(FXCollections.observableArrayList(rows));
+        VBox bids = new VBox(8);
+        boolean sellerCanAccept = Session.is("SELLER") && ("OPEN".equals(J.s(a, "status")) || "CLOSED_PENDING_SELLER".equals(J.s(a, "status")));
+        for (JsonNode bid : a.path("bids")) bids.getChildren().add(bidCard(id, bid, reload, sellerCanAccept));
+        if (bids.getChildren().isEmpty()) bids.getChildren().add(UI.card(UI.label("No bids yet. Verified buyers can submit a price and recovery plan while the auction is open.", "muted")));
         HBox actions = new HBox(10);
         if (open && Session.is("BUYER")) actions.getChildren().add(UI.primary("Place a bid", () -> FormDialog.show("Bid on " + J.s(a, "listingName"), "Submit bid", List.of(
                 FormDialog.num("price", "Your price (INR)", true, null), FormDialog.combo("pathway", "Intended processing pathway", true, FormDialog.enumOpts(Enums.Pathway.class, false), "RECYCLE"),
                 FormDialog.area("recoveryPlan", "Recovery plan (how you will process and recover material)", false)),
                 b -> () -> ApiClient.post("/api/auctions/" + id + "/bids", b), r -> { Alerts.info("Bid placed. Your recovery capability and environmental rating come from your verified buyer profile."); reload.run(); })));
-        if (Session.is("SELLER") && ("OPEN".equals(J.s(a, "status")) || "CLOSED_PENDING_SELLER".equals(J.s(a, "status")))) {
-            actions.getChildren().add(UI.primary("Accept selected bid", () -> { JsonNode s = t.getSelectionModel().getSelectedItem(); if (s == null) { Alerts.info("Select a bid in the table first."); return; }
-                Alerts.confirm("Accept the bid of " + J.money(s, "price") + " from " + J.s(s, "bidderLabel") + "? An order will be created for that buyer.",
-                        () -> Async.run(() -> ApiClient.post("/api/auctions/" + id + "/accept/" + J.l(s, "id"), null), r -> { Alerts.info("Bid accepted. The buyer was notified to pay."); reload.run(); })); }));
+        if (sellerCanAccept) {
             if (open && J.l(a, "bidCount") == 0) actions.getChildren().add(UI.danger("Cancel auction", () -> Alerts.confirm("Cancel this auction?", () -> Async.run(() -> ApiClient.post("/api/auctions/" + id + "/cancel", null), r -> reload.run()))));
         }
         actions.getChildren().add(UI.secondary("Refresh", reload));
-        return new VBox(12, head, boards, UI.label("Bidding history (append-only, auditable)", "section-title"), t, actions);
+        return new VBox(12, head, boards, UI.label("Bids and recovery plans", "section-title"), bids, actions);
     }
 
-    private static void addCol(TableView<JsonNode> t, String h, java.util.function.Function<JsonNode, String> f) {
-        TableColumn<JsonNode, String> c = new TableColumn<>(h); c.setCellValueFactory(cd -> new javafx.beans.property.SimpleStringProperty(f.apply(cd.getValue()))); t.getColumns().add(c);
+    private static Node bidCard(long auctionId, JsonNode bid, Runnable reload, boolean sellerCanAccept) {
+        VBox card = UI.card();
+        HBox top = UI.row(UI.label(J.money(bid, "price"), "price"), UI.grow(), UI.label(String.format("Score %.1f", J.d(bid, "circularBidScore")), "section-title"));
+        card.getChildren().addAll(top, UI.label(J.s(bid, "bidderLabel") + "  ·  " + J.date(bid, "createdAt"), "muted"),
+                UI.label(J.human(J.s(bid, "pathway")) + "  ·  Recovery " + J.s(bid, "recoveryCapability") + "  ·  Environment " + J.s(bid, "environmentalPerformance"), "label"));
+        if (!J.s(bid, "recoveryPlan").isBlank()) card.getChildren().add(UI.label("Recovery plan: " + J.s(bid, "recoveryPlan"), "muted"));
+        if (sellerCanAccept) card.getChildren().add(UI.primary("Accept this bid", () -> Alerts.confirm(
+                "Accept " + J.money(bid, "price") + " from " + J.s(bid, "bidderLabel") + "? An order will be created for that buyer.",
+                () -> Async.run(() -> ApiClient.post("/api/auctions/" + auctionId + "/accept/" + J.l(bid, "id"), null),
+                        result -> { Alerts.info("Bid accepted. The buyer was notified to pay."); reload.run(); }))));
+        return card;
     }
     private static Node leader(String title, JsonNode bid) {
         VBox v = UI.card(UI.label(title, "stat-title"));

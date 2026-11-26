@@ -75,13 +75,17 @@ public final class DisputeViews {
         if (!det.path("resolution").isNull() && !det.path("resolution").isMissingNode())
             info.getChildren().add(UI.label("DECISION: " + J.human(J.s(det, "resolution.type")) + (J.d(det, "resolution.refundAmount") > 0 ? " | refund " + J.money(det, "resolution.refundAmount") : "") + " | " + J.s(det, "resolution.decisionText") + " (by " + J.s(det, "resolution.resolverName") + ")", "ok-text"));
 
-        ListView<JsonNode> ev = new ListView<>(FXCollections.observableArrayList(iter(det.path("evidence")))); ev.setPrefHeight(170);
+        ListView<JsonNode> ev = new ListView<>(FXCollections.observableArrayList(iter(det.path("evidence")))); ev.setPrefHeight(150);
         ev.setCellFactory(l -> new ListCell<>() { @Override protected void updateItem(JsonNode n, boolean e) { super.updateItem(n, e); setText(e || n == null ? null :
                 J.date(n, "createdAt") + " | " + J.s(n, "submitterRole") + " " + J.s(n, "submitterName") + " | " + J.human(J.s(n, "category")) + " | " + J.s(n, "originalName") + " | sha256 " + J.s(n, "sha256").substring(0, 10) + "..." + (J.s(n, "description").isBlank() ? "" : " | " + J.s(n, "description"))); } });
+        StackPane preview = new StackPane(UI.label("Select image evidence to preview.", "muted"));
+        preview.setPrefSize(280, 180); preview.setMinHeight(150); preview.getStyleClass().add("photo-ph");
+        ev.getSelectionModel().selectedItemProperty().addListener((o, a, selected) -> showEvidencePreview(id, selected, preview));
+        if (!ev.getItems().isEmpty()) ev.getSelectionModel().selectFirst();
         Button view = UI.secondary("Open selected evidence", () -> { JsonNode s = ev.getSelectionModel().getSelectedItem(); if (s != null) openEvidence(id, s); });
         HBox evBar = new HBox(8, view);
         if (!staff && !fin) evBar.getChildren().add(UI.primary("Upload evidence", () -> upload(id, reload)));
-        VBox evidence = UI.card(UI.label("Evidence (immutable once uploaded, fingerprinted with SHA-256)", "section-title"), ev, evBar);
+        VBox evidence = UI.card(UI.label("Evidence (immutable once uploaded, fingerprinted with SHA-256)", "section-title"), ev, preview, evBar);
 
         ListView<JsonNode> msgs = new ListView<>(FXCollections.observableArrayList(iter(det.path("messages")))); msgs.setPrefHeight(230);
         msgs.setCellFactory(l -> new ListCell<>() { @Override protected void updateItem(JsonNode n, boolean e) { super.updateItem(n, e); if (e || n == null) { setText(null); setGraphic(null); return; }
@@ -116,6 +120,16 @@ public final class DisputeViews {
     }
     private static Node grow(Node n) { HBox.setHgrow(n, Priority.ALWAYS); ((Region) n).setPrefWidth(480); return n; }
     private static List<JsonNode> iter(JsonNode arr) { List<JsonNode> l = new java.util.ArrayList<>(); arr.forEach(l::add); return l; }
+
+    private static void showEvidencePreview(long disputeId, JsonNode evidence, StackPane preview) {
+        if (evidence == null) {
+            preview.getChildren().setAll(UI.label("Select image evidence to preview.", "muted"));
+        } else if (!J.s(evidence, "contentType").startsWith("image/")) {
+            preview.getChildren().setAll(UI.label("Inline preview is available for images. Open this file to view it.", "muted"));
+        } else {
+            preview.getChildren().setAll(ImageCache.view("/api/disputes/" + disputeId + "/evidence/" + J.l(evidence, "id") + "/file", 260, 170));
+        }
+    }
 
     private static void upload(long id, Runnable reload) {
         FileChooser fc = new FileChooser(); fc.setTitle("Select evidence (JPG, PNG, WEBP or PDF, max 10 MB)");

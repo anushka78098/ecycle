@@ -1,6 +1,7 @@
 package com.ecycle.frontend.view;
 
 import com.ecycle.frontend.api.ApiClient;
+import com.ecycle.frontend.api.LiveClient;
 import com.ecycle.frontend.api.Session;
 import com.ecycle.frontend.component.*;
 import com.ecycle.frontend.navigation.Nav;
@@ -10,8 +11,10 @@ import com.ecycle.frontend.util.J;
 import com.ecycle.shared.Enums;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
-import javafx.collections.FXCollections;
+import java.util.Set;
+import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.scene.Node;
 import javafx.scene.control.*;
@@ -80,17 +83,77 @@ public final class MiscViews {
         ResourceView v = new ResourceView("Messages", "Conversations about listings between buyers and sellers", () -> ApiClient.get("/api/chat/conversations"));
         v.col("Product", "listingName").col("From", "senderName").col("To", "recipientName").col("Latest message", "body").date("When", "createdAt")
                 .action("Open conversation", n -> true, n -> thread(n)).onOpen(MiscViews::thread);
+        Runnable[] off = {null};
+        v.sceneProperty().addListener((o, oldScene, scene) -> {
+            if (scene != null && off[0] == null) {
+                off[0] = LiveClient.listen(ev -> {
+                    if ("CHAT".equals(ev.path("type").asText())) v.reload();
+                });
+            } else if (scene == null && off[0] != null) {
+                off[0].run();
+                off[0] = null;
+            }
+        });
         return v;
     }
     private static void thread(JsonNode m) {
         long listing = J.l(m, "listingId"), other = J.l(m, "senderId") == Session.userId ? J.l(m, "recipientId") : J.l(m, "senderId");
-        ListView<String> lv = new ListView<>(); lv.setPrefHeight(340); TextField in = new TextField(); in.setPromptText("Write a message..."); HBox.setHgrow(in, Priority.ALWAYS);
+        String otherName = J.l(m, "senderId") == Session.userId ? J.s(m, "recipientName") : J.s(m, "senderName");
+        VBox transcript = new VBox(10); transcript.setPadding(new Insets(14));
+        ScrollPane scroll = UI.scroll(transcript); VBox.setVgrow(scroll, Priority.ALWAYS);
+        TextField in = new TextField(); in.setPromptText("Write a message..."); HBox.setHgrow(in, Priority.ALWAYS);
+        Button sendButton = UI.primary("Send", () -> { });
+        Set<String> seen = new HashSet<>();
+        java.util.function.Consumer<JsonNode> append = message -> {
+            String id = J.s(message, "id");
+            if (id.isBlank() || !seen.add(id)) return;
+            if (transcript.getChildren().size() == 1 && transcript.getChildren().get(0) instanceof Label) transcript.getChildren().clear();
+            boolean mine = J.l(message, "senderId") == Session.userId;
+            VBox bubble = new VBox(4, UI.label(mine ? "You  ·  " + J.date(message, "createdAt") : J.s(message, "senderName") + "  ·  " + J.date(message, "createdAt"), "chat-meta"),
+                    UI.label(J.s(message, "body"), "chat-body"));
+            bubble.getStyleClass().addAll("chat-bubble", mine ? "chat-bubble-own" : "chat-bubble-other");
+            bubble.setMaxWidth(440);
+            HBox row = new HBox(8);
+            row.setAlignment(mine ? javafx.geometry.Pos.CENTER_RIGHT : javafx.geometry.Pos.CENTER_LEFT);
+            if (mine) row.getChildren().addAll(UI.grow(), bubble); else row.getChildren().add(bubble);
+            transcript.getChildren().add(row);
+            Platform.runLater(() -> scroll.setVvalue(1));
+        };
         Runnable[] load = new Runnable[1];
-        load[0] = () -> Async.run(() -> ApiClient.get("/api/chat/thread?listingId=" + listing + "&with=" + other), t -> { List<String> rows = new ArrayList<>(); t.forEach(x -> rows.add(J.date(x, "createdAt") + "  " + J.s(x, "senderName") + ": " + J.s(x, "body"))); lv.setItems(FXCollections.observableArrayList(rows)); lv.scrollTo(rows.size() - 1); });
-        Runnable send = () -> { if (in.getText().isBlank()) return; var b = J.obj(); b.put("listingId", listing); b.put("recipientId", other); b.put("body", in.getText().trim()); in.clear(); Async.run(() -> ApiClient.post("/api/chat", b), r -> load[0].run()); };
-        in.setOnAction(e -> send.run());
+        load[0] = () -> Async.run(() -> ApiClient.get("/api/chat/thread?listingId=" + listing + "&with=" + other), messages -> {
+            transcript.getChildren().clear();
+            seen.clear();
+            messages.forEach(append);
+            if (messages.isEmpty()) transcript.getChildren().add(UI.label("Start the conversation about this listing.", "muted"));
+            Platform.runLater(() -> scroll.setVvalue(1));
+        });
+        sendButton.setOnAction(e -> {
+            String body = in.getText().trim();
+            if (body.isEmpty() || sendButton.isDisabled()) return;
+            var request = J.obj(); request.put("listingId", listing); request.put("recipientId", other); request.put("body", body);
+            sendButton.setDisable(true);
+            Async.run(() -> ApiClient.post("/api/chat", request), sent -> {
+                in.clear();
+                sendButton.setDisable(false);
+                append.accept(sent);
+            }, error -> {
+                sendButton.setDisable(false);
+                Alerts.error(error);
+            });
+        });
+        in.setOnAction(e -> sendButton.fire());
         Dialog<ButtonType> d = new Dialog<>(); d.setTitle(J.s(m, "listingName")); d.getDialogPane().getStylesheets().add(Nav.css());
-        d.getDialogPane().setContent(new VBox(10, lv, new HBox(8, in, UI.primary("Send", send)))); d.getDialogPane().getButtonTypes().add(ButtonType.CLOSE); d.getDialogPane().setPrefWidth(620); d.show(); load[0].run();
+        d.getDialogPane().setContent(new VBox(10, UI.label("Chat with " + otherName, "section-title"), scroll, new HBox(8, in, sendButton)));
+        d.getDialogPane().getButtonTypes().add(ButtonType.CLOSE); d.getDialogPane().setPrefSize(660, 520); d.setResizable(true);
+        Runnable off = LiveClient.listen(ev -> {
+            if (!"CHAT".equals(ev.path("type").asText())) return;
+            JsonNode message = ev.path("payload");
+            if (J.l(message, "listingId") != listing) return;
+            long sender = J.l(message, "senderId"), recipient = J.l(message, "recipientId");
+            if ((sender == Session.userId && recipient == other) || (sender == other && recipient == Session.userId)) append.accept(message);
+        });
+        d.setOnHidden(e -> off.run());
+        d.show(); load[0].run();
     }
 
     public static ResourceView myReviews() {

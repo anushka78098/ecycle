@@ -14,35 +14,85 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.File;
 import java.util.*;
 import javafx.geometry.Insets;
+import javafx.scene.Node;
 import javafx.scene.control.CheckBox;
-import javafx.scene.layout.VBox;
+import javafx.scene.control.Label;
+import javafx.scene.layout.*;
 import javafx.stage.FileChooser;
 
 /** Seller workspace: listings (create/edit/withdraw/images), offers, and hazard + data-sanitization workflow. */
 public final class SellerViews {
     private SellerViews() {}
 
-    public static ResourceView listings() {
-        ResourceView v = new ResourceView("My listings", "Create products and waste listings, track approval, upload photos", () -> ApiClient.get("/api/listings/mine"));
-        v.col("#", "id").col("Product", "name").col("Category", "categoryName").money("Price", "expectedPrice").badge("Status", "status").col("Score", n -> String.format("%.0f", J.d(n, "score.overall")))
-                .badge("Pathway", "pathway").badge("Hazard", "hazardLevel").col("Reason", "rejectionReason")
-                .tool("New listing", () -> form(null, v))
-                .action("Edit", n -> Set.of("PENDING_APPROVAL", "REJECTED").contains(J.s(n, "status")), n -> form(n, v))
-                .action("Upload photos", n -> !Set.of("SOLD", "WITHDRAWN").contains(J.s(n, "status")), n -> photos(n, v))
-                .action("Withdraw", "btn-danger", n -> Set.of("PENDING_APPROVAL", "REJECTED").contains(J.s(n, "status")), n -> Alerts.confirm("Withdraw this listing? History is kept.", () -> Async.run(() -> ApiClient.delete("/api/listings/" + J.l(n, "id")), r -> v.reload())))
-                .action("Details", n -> true, n -> new ProductDialog(J.l(n, "id")).show());
-        return v;
+    public static Node listings() {
+        VBox root = new VBox(12); root.setPadding(new Insets(20));
+        FlowPane cards = UI.flow(16);
+        Label count = UI.label("", "muted");
+        Runnable[] reload = new Runnable[1];
+        reload[0] = () -> Async.run(() -> ApiClient.get("/api/listings/mine"), listings -> {
+            cards.getChildren().clear();
+            count.setText(listings.size() + " listing(s)");
+            if (listings.isEmpty()) cards.getChildren().add(UI.card(UI.label("No listings yet. Create your first item to start selling.", "muted")));
+            listings.forEach(listing -> cards.getChildren().add(listingCard(listing, reload[0])));
+        });
+        root.getChildren().addAll(
+                UI.pageHeader("My listings", "Manage products, upload photos, and track approval. Approved listings appear in the marketplace.",
+                        UI.primary("New listing", () -> form(null, reload[0])), UI.secondary("Refresh", () -> reload[0].run())),
+                count, UI.scroll(cards));
+        VBox.setVgrow(root.getChildren().get(2), Priority.ALWAYS);
+        reload[0].run();
+        return root;
     }
 
-    private static void photos(JsonNode n, ResourceView v) {
+    private static VBox listingCard(JsonNode listing, Runnable reload) {
+        long id = J.l(listing, "id");
+        VBox card = new VBox(10); card.setPadding(new Insets(12)); card.setPrefWidth(300); card.setMaxWidth(300); card.getStyleClass().add("product-card");
+        StackPane photo = new StackPane(); photo.setPrefSize(274, 164); photo.setMinHeight(164); photo.getStyleClass().add("photo-ph");
+        JsonNode imageIds = listing.path("imageIds");
+        if (imageIds.isArray() && !imageIds.isEmpty()) {
+            photo.getChildren().add(ImageCache.view("/api/listings/" + id + "/images/" + imageIds.get(0).asLong(), 274, 164));
+        } else {
+            photo.getChildren().add(UI.label("Upload a product photo", "muted"));
+        }
+        photo.setOnMouseClicked(e -> new ProductDialog(id).show());
+
+        HBox title = UI.row(UI.label(J.s(listing, "name"), "section-title"), UI.grow(), UI.badge(J.s(listing, "status")));
+        Label details = UI.label(J.s(listing, "categoryName") + "  ·  " + J.s(listing, "quantity") + " unit(s)  ·  " + J.s(listing, "pickupCity"), "muted");
+        Label price = UI.label(J.money(listing, "expectedPrice"), "price");
+        FlowPane badges = new FlowPane(6, 6, UI.badge(J.s(listing, "pathway")), UI.badge(J.s(listing, "hazardLevel")));
+        if (J.b(listing, "auctionEnabled")) badges.getChildren().add(UI.badge("AUCTION"));
+        Label score = UI.label(String.format("Circular Value Score  %.0f / 100", J.d(listing, "score.overall")), "muted");
+        VBox cardContent = new VBox(10, photo, title, details, price, badges, score);
+        card.getChildren().add(cardContent);
+
+        boolean editable = Set.of("PENDING_APPROVAL", "REJECTED").contains(J.s(listing, "status"));
+        boolean canUpload = !Set.of("SOLD", "WITHDRAWN").contains(J.s(listing, "status"));
+        FlowPane actions = new FlowPane(6, 6);
+        actions.getChildren().add(UI.secondary("Details", () -> new ProductDialog(id).show()));
+        if (editable) actions.getChildren().add(UI.secondary("Edit", () -> form(listing, reload)));
+        if (canUpload) actions.getChildren().add(UI.secondary("Upload photos", () -> photos(listing, reload)));
+        if (editable) actions.getChildren().add(UI.danger("Withdraw", () -> Alerts.confirm("Withdraw this listing? Its history will be kept.", () ->
+                Async.run(() -> ApiClient.delete("/api/listings/" + id), result -> reload.run()))));
+        card.getChildren().add(actions);
+        card.setOnMouseClicked(e -> {
+            if (e.getTarget() == card || e.getTarget() == cardContent || e.getTarget() == title) new ProductDialog(id).show();
+        });
+        return card;
+    }
+
+    private static void photos(JsonNode n, Runnable reload) {
         FileChooser fc = new FileChooser(); fc.setTitle("Select product photos (JPG, PNG, WEBP, max 5 MB, up to 8)");
         fc.getExtensionFilters().add(new FileChooser.ExtensionFilter("Images", "*.jpg", "*.jpeg", "*.png", "*.webp"));
         List<File> files = fc.showOpenMultipleDialog(Nav.stage()); if (files == null || files.isEmpty()) return;
-        Async.run(() -> ApiClient.upload("/api/listings/" + J.l(n, "id") + "/images", Map.of(), "files", files), r -> { Alerts.info(files.size() + " photo(s) uploaded."); v.reload(); });
+        Async.run(() -> ApiClient.upload("/api/listings/" + J.l(n, "id") + "/images", Map.of(), "files", files), r -> {
+            Alerts.info(files.size() + " photo(s) uploaded. Opening the listing gallery.");
+            reload.run();
+            new ProductDialog(J.l(n, "id")).show();
+        });
     }
 
     /** Create or edit. The hazard questionnaire is built from the admin-configurable rules in the database. */
-    private static void form(JsonNode ex, ResourceView v) {
+    private static void form(JsonNode ex, Runnable reload) {
         Async.run(() -> { JsonNode cats = ApiClient.get("/api/categories"); JsonNode rules = ApiClient.get("/api/hazard/rules"); return new JsonNode[]{cats, rules}; }, data -> {
             List<Opt> cats = new ArrayList<>(); data[0].forEach(c -> cats.add(new Opt(c.path("id").asText(), c.path("name").asText())));
             boolean e = ex != null; String ini = e ? J.s(ex, "categoryId") : null;
@@ -67,7 +117,7 @@ public final class SellerViews {
                 body.put("categoryId", body.get("categoryId").asLong()); body.put("auctionEnabled", body.path("auctionEnabled").asBoolean(false));
                 return e ? ApiClient.put("/api/listings/" + J.l(ex, "id"), body) : ApiClient.post("/api/listings", body);
             }, res -> { Alerts.info("Saved. Circular Value Score " + String.format("%.1f", J.d(res, "score.overall")) + ", recommended pathway " + J.human(J.s(res, "score.recommendedPathway"))
-                    + ", hazard level " + J.human(J.s(res, "hazardLevel")) + ". Awaiting admin approval."); v.reload(); });
+                    + ", hazard level " + J.human(J.s(res, "hazardLevel")) + ". Awaiting resolver approval. Add photos from the listing card so buyers can see them once it is approved."); reload.run(); });
         });
     }
 

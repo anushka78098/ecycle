@@ -8,17 +8,19 @@ A Java 21 desktop marketplace for e-waste with **three roles only: Seller, Buyer
 - **Three roles.** `ADMIN` is removed from the enum, security rules and menus. Migration `V5` turns any existing admin into a resolver and deletes the role. The bootstrap account `admin@ecycle.local` is now a resolver (moderator).
 - **Google sign-in** (`POST /api/auth/google`, "Continue with Google" on the login screen). See "Google sign-in" below.
 - **Demo data, about 20 per feature**, created through the real services (`DemoDataSeeder`): 63 listings with generated photos (2 photos on the first 20), 20 offers, 40 orders with sandbox payments (5 paid, 5 shipped, 30 delivered), 20 disputes with evidence photos and messages (open, assigned, awaiting evidence, resolved, rejected), 20 reviews, 20 chat threads, 20 wishlist entries, 20 bids across 4 reverse auctions, plus passports, notifications and impact figures that the services produce along the way.
+- Demo impact, component-genealogy, and sanitization examples use the actual service workflows. Impact values are explicitly estimates; component records and the pending sanitization evidence are synthetic demo data, not real measurements or proof of a device wipe. When demo accounts already exist, startup idempotently backfills missing outcomes, disputes, and samples instead of skipping all demo data.
 - **Menus trimmed** to what is relevant: marketplace, listings, offers, auctions, orders, passports, hazard and data safety, impact, messages, Eco-Assistant, disputes, reviews, and moderation for resolvers. Pickups, certificates, chain of custody, recycler map and the rewards programme are hidden from the menus (backend code is untouched).
-- Messaging (STOMP live push + stored history) and the Eco-Assistant chatbot already existed and are now fed with demo data. The assistant falls back to its rule-based mode when no LLM key is set.
+- Messaging uses stored conversations and STOMP live push: new messages appear as individual chat bubbles, refresh the inbox, and notify the recipient. Seller listings and reverse auctions use photo-forward cards rather than data tables.
 
-## Read this first: verification status (honest)
-This version was edited in a sandbox with **no Maven, no JavaFX and no network**, so **nothing in it has been compiled or run**. The new and changed Java files were only syntax-checked with the JDK compiler (no syntax errors; symbol resolution needs the real dependencies). Expect a few compile or wiring errors on the first `mvn verify`; treat that run as the real verification. Specifically untested: the demo seeder (each step is wrapped so one failure is logged and skipped, not fatal), Google sign-in against real Google, the V5 migration on an existing database, and the trimmed menus.
+## Verification status
+Backend unit tests pass and the JavaFX client compiles with JDK 21. Docker Desktop was unavailable during this check, so the app could not be run against PostgreSQL/MongoDB and the integration tests were not run. Gemini calls also need a valid `ASSISTANT_API_KEY` in `.env`.
 
 ## Prerequisites
 JDK 21+, Maven 3.9+, Docker (PostgreSQL and the integration tests). Desktop session for the JavaFX client.
 
 ## Run it (development)
 ```bash
+# Copy .env.example to .env and set ASSISTANT_API_KEY to your Google AI Studio key.
 # terminal 1: PostgreSQL + MongoDB (docker compose) and the API (dev profile: demo data, mock payments, ephemeral JWT secret)
 ./scripts/run-backend.sh            # Windows: scripts\run-backend.bat
 # terminal 2: desktop client
@@ -27,8 +29,10 @@ JDK 21+, Maven 3.9+, Docker (PostgreSQL and the integration tests). Desktop sess
 Equivalent manual commands:
 ```bash
 docker compose up -d db
-SPRING_PROFILES_ACTIVE=dev mvn -pl backend -am spring-boot:run
-mvn -pl frontend -am javafx:run          # ECYCLE_API=http://host:8080 to point elsewhere
+mvn -pl backend -am -DskipTests install
+SPRING_PROFILES_ACTIVE=dev mvn -f backend/pom.xml spring-boot:run
+mvn -pl frontend -am -DskipTests install
+mvn -f frontend/pom.xml javafx:run       # ECYCLE_API=http://host:8080 to point elsewhere
 ```
 Build everything and the client fat jar: `mvn clean verify` -> `frontend/target/ecycle-desktop.jar` (`java -jar`, built for the OS you build on) and `backend/target/ecycle-backend-1.0.0.jar`.
 
@@ -41,7 +45,12 @@ Build everything and the client fat jar: `mvn clean verify` -> `frontend/target/
 | Dispute resolver | resolver@ / resolver2@ecycle.local | Resolver@123 |
 | Resolver (bootstrap moderator) | admin@ecycle.local | Admin@12345 |
 
-Suggested 5-minute demo: buyer buys the monitor (sandbox payment) -> seller ships -> buyer confirms delivery -> passport ownership moves -> buyer raises a dispute and uploads evidence -> resolver claims it and issues a partial refund. Then: seller submits sanitization evidence for the laptop -> admin verifies -> certificate prints; recycler buys the swollen-battery phone (only recyclers can); buyer bids on the PCB lot, seller compares *highest price* vs *highest Circular Bid Score* and awards.
+### Live marketplace demo
+1. Sign in as a seller, create a listing, then choose **Upload photos** on its listing card. The listing becomes public in the marketplace after a resolver approves it; uploaded photos are shown on its marketplace card and product page.
+2. Sign in as a buyer, open that product and choose **Message seller**. The seller receives a live notification; the conversation appears in **Messages**, and replies arrive as separate chat bubbles without refreshing.
+3. To demo auctions, enable **Sell via reverse auction** when creating the listing. After approval, it appears in **Reverse auctions**; a verified buyer can place a bid, and the seller can accept a bid to create an order.
+
+Suggested 5-minute demo: buyer buys the monitor (sandbox payment) -> seller ships -> buyer confirms delivery -> passport ownership moves -> open **Impact** to show the estimated CO₂ dashboard -> buyer raises a dispute and uploads evidence -> resolver claims it and issues a partial refund. For the existing synthetic sanitization sample, review the clearly labeled pending demo record as a resolver; do not treat it as proof of a real wipe or issue a real certificate from it. Then explore the demo component genealogy, recycler handling for the swollen-battery phone, and bids on the PCB lot.
 
 ## Google sign-in
 1. Google Cloud Console -> APIs & Services -> OAuth consent screen (External, add yourself as a test user), then Credentials -> Create credentials -> **OAuth client ID** -> application type **Desktop app**.
@@ -54,7 +63,7 @@ The flow is OAuth 2.0 authorization code + PKCE with a loopback redirect, so no 
 `GOOGLE_CLIENT_ID ECYCLE_GOOGLE_CLIENT_ID ECYCLE_GOOGLE_CLIENT_SECRET DB_URL DB_USER DB_PASSWORD MONGO_URI JWT_SECRET CERT_SIGNING_SECRET PUBLIC_BASE_URL REQUIRE_WIPE_CHECKLIST ASSISTANT_PROVIDER ASSISTANT_API_KEY ASSISTANT_BASE_URL ASSISTANT_MODEL ECYCLE_TILE_URL(client) JWT_SECRET (>=32 chars, required outside dev) ADMIN_EMAIL ADMIN_PASSWORD FILE_STORAGE_DIR PAYMENT_PROVIDER (mock|razorpay) RAZORPAY_KEY_ID RAZORPAY_KEY_SECRET MAIL_ENABLED MAIL_HOST MAIL_PORT MAIL_USER MAIL_PASSWORD MAIL_FROM RATE_LIMIT_PER_MINUTE`. No secret is stored in the repository. Password-reset codes are only logged in dev mode when mail is disabled.
 
 ### AI assistant
-The assistant uses **LangChain4j** (`AiServices` + `@Tool` function calling + persistent `ChatMemory`) against **Google Gemini** (through Gemini's OpenAI-compatible endpoint): set `ASSISTANT_PROVIDER=gemini` and `ASSISTANT_API_KEY` to a key from https://aistudio.google.com/apikey (model via `ASSISTANT_MODEL`, default `gemini-3.8-flash`). OpenAI still works with `ASSISTANT_PROVIDER=openai`, or `ASSISTANT_BASE_URL=http://localhost:11434/v1` with `ASSISTANT_MODEL=llama3.1` for a local Ollama (`docker compose --profile ai up -d`). With nothing configured (or if the model is unreachable) a deterministic rule-based mode answers the same intents with the same tools, so the screen always works. Tools run as the signed-in user; **booking, cancelling and redeeming only create a proposal that the user confirms with a button** (the model cannot confirm), proposals expire after 10 minutes, and requests are rate-limited per user.
+The assistant uses **LangChain4j** (`AiServices` + `@Tool` function calling + persistent `ChatMemory`) against **Google Gemini** (through Gemini's OpenAI-compatible endpoint): set `ASSISTANT_PROVIDER=gemini` and `ASSISTANT_API_KEY` to a key from https://aistudio.google.com/apikey (model via `ASSISTANT_MODEL`, default `gemini-3.1-flash-lite`). The backend reads the project-root `.env`; copy `.env.example` to `.env` and add your key before starting it. Without a key, the UI clearly reports rule-based mode; if Gemini is unreachable, the reply is marked as a fallback. OpenAI still works with `ASSISTANT_PROVIDER=openai`, or `ASSISTANT_BASE_URL=http://localhost:11434/v1` with `ASSISTANT_MODEL=llama3.1` for a local Ollama (`docker compose --profile ai up -d`). Assistant transcripts and model memory are persisted in MongoDB, and are listed in the app's conversation history. Tools run as the signed-in user; **booking, cancelling and redeeming only create a proposal that the user confirms with a button** (the model cannot confirm), proposals expire after 10 minutes, and requests are rate-limited per user.
 
 ### Docker
 `docker compose up -d` starts PostgreSQL and MongoDB; `docker compose --profile app up -d --build` also runs the API in a container (needs `JWT_SECRET` in `.env`); `--profile ai` adds Ollama. The JavaFX client runs on the desktop (`scripts/run-frontend.sh`).

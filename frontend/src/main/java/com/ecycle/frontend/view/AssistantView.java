@@ -25,19 +25,39 @@ public final class AssistantView extends BorderPane {
         setTop(new VBox(6, UI.pageHeader("Eco-Assistant", "Ask about e-waste, your eco-points, pickups, certificates and rewards. Booking, cancelling and redeeming always need your confirmation.", fresh), mode));
         convs.setPrefWidth(230); convs.setCellFactory(l -> new ListCell<>() { @Override protected void updateItem(JsonNode n, boolean e) { super.updateItem(n, e); setText(e || n == null ? null : J.s(n, "title")); } });
         convs.getSelectionModel().selectedItemProperty().addListener((o, a, n) -> { if (n != null) open(J.s(n, "id")); });
+        Button delete = UI.danger("Delete selected", this::deleteSelected);
+        delete.setDisable(true);
+        convs.getSelectionModel().selectedItemProperty().addListener((o, a, n) -> delete.setDisable(n == null));
+        VBox history = new VBox(8, UI.label("Past conversations", "section-title"), convs, delete);
+        VBox.setVgrow(convs, Priority.ALWAYS);
         messages.setPadding(new Insets(10)); scroll.setFitToWidth(true); scroll.getStyleClass().add("clear-scroll"); messages.heightProperty().addListener((o, a, b) -> scroll.setVvalue(1.0));
         input.setPromptText("Ask something, e.g. \"How many eco-points do I have?\""); HBox.setHgrow(input, Priority.ALWAYS); input.setOnAction(e -> send());
         HBox bar = new HBox(8, input, send); bar.setPadding(new Insets(10, 0, 0, 0));
-        setLeft(convs); BorderPane.setMargin(convs, new Insets(10, 12, 0, 0)); setCenter(scroll); setBottom(bar);
+        setLeft(history); history.setPrefWidth(230); BorderPane.setMargin(history, new Insets(10, 12, 0, 0)); setCenter(scroll); setBottom(bar);
         add("assistant", "Hi! I can check your eco-points, track pickups, find recyclers, estimate your carbon impact and prepare bookings for you to confirm.", null);
-        Async.run(() -> ApiClient.get("/api/assistant/status"), s -> mode.setText(s.path("mode").asText().equals("AI") ? "AI model: " + s.path("model").asText() : "Rule-based mode (no AI model configured on the server)"), t -> { });
+        Async.run(() -> ApiClient.get("/api/assistant/status"), s -> mode.setText(s.path("mode").asText().equals("AI")
+                ? "AI model: " + s.path("model").asText() : "Rule-based mode: " + s.path("model").asText()));
         loadConversations();
     }
 
-    private void loadConversations() { Async.run(() -> ApiClient.get("/api/assistant/conversations"), l -> { var items = FXCollections.<JsonNode>observableArrayList(); l.forEach(items::add); convs.setItems(items); }, t -> { }); }
+    private void loadConversations() { Async.run(() -> ApiClient.get("/api/assistant/conversations"), l -> { var items = FXCollections.<JsonNode>observableArrayList(); l.forEach(items::add); convs.setItems(items); }); }
     private void newChat() { conversationId = null; messages.getChildren().clear(); add("assistant", "New conversation started. How can I help?", null); convs.getSelectionModel().clearSelection(); }
+    private void deleteSelected() {
+        JsonNode selected = convs.getSelectionModel().getSelectedItem();
+        if (selected == null) return;
+        String id = J.s(selected, "id");
+        Alerts.confirm("Permanently delete this conversation and its saved transcript?", () ->
+                Async.run(() -> ApiClient.delete("/api/assistant/conversations/" + id), r -> {
+                    if (id.equals(conversationId)) newChat();
+                    loadConversations();
+                }));
+    }
     private void open(String id) {
-        Async.run(() -> ApiClient.get("/api/assistant/conversations/" + id), h -> { conversationId = id; messages.getChildren().clear(); h.forEach(m -> add(J.s(m, "role"), J.s(m, "content"), null)); });
+        Async.run(() -> ApiClient.get("/api/assistant/conversations/" + id), h -> {
+            conversationId = id; messages.getChildren().clear();
+            h.forEach(m -> add(J.s(m, "role"), J.s(m, "content"), null,
+                    J.s(m, "role").equals("assistant") && !J.s(m, "mode").isBlank() ? "Response mode: " + J.s(m, "mode") : ""));
+        });
     }
 
     private void send() {
@@ -45,13 +65,13 @@ public final class AssistantView extends BorderPane {
         input.clear(); add("user", text, null); input.setDisable(true); send.setDisable(true);
         var body = J.obj(); body.put("message", text); if (conversationId != null) body.put("conversationId", conversationId);
         Async.run(() -> ApiClient.post("/api/assistant/chat", body), r -> {
-            boolean first = conversationId == null; conversationId = J.s(r, "conversationId"); input.setDisable(false); send.setDisable(false); input.requestFocus();
+            conversationId = J.s(r, "conversationId"); input.setDisable(false); send.setDisable(false); input.requestFocus();
             VBox extras = new VBox(6);
             for (JsonNode p : r.path("pendingActions")) extras.getChildren().add(actionCard(p));
             StringBuilder t = new StringBuilder(); r.path("toolsUsed").forEach(x -> t.append(t.length() == 0 ? "" : ", ").append(x.asText()));
-            add("assistant", J.s(r, "reply"), extras.getChildren().isEmpty() ? null : extras);
-            if (t.length() > 0) messages.getChildren().add(UI.label("Used: " + t + "  (" + J.s(r, "mode") + ")", "muted"));
-            if (first) loadConversations();
+            String details = "Response mode: " + J.s(r, "mode") + (t.length() == 0 ? "" : " | Tools: " + t);
+            add("assistant", J.s(r, "reply"), extras.getChildren().isEmpty() ? null : extras, details);
+            loadConversations();
         }, t -> { input.setDisable(false); send.setDisable(false); Alerts.error(t); });
     }
 
@@ -64,9 +84,15 @@ public final class AssistantView extends BorderPane {
     }
 
     private void add(String role, String text, VBox extra) {
+        add(role, text, extra, "");
+    }
+
+    private void add(String role, String text, VBox extra, String detail) {
         boolean me = "user".equals(role);
         Label l = UI.label(text, me ? "badge-green" : "card"); l.setMaxWidth(640); l.setPadding(new Insets(10)); l.setTextOverrun(OverrunStyle.CLIP);
-        VBox col = new VBox(6, l); if (extra != null) col.getChildren().add(extra);
+        VBox col = new VBox(6, l);
+        if (extra != null) col.getChildren().add(extra);
+        if (!detail.isBlank()) col.getChildren().add(UI.label(detail, "muted"));
         HBox row = new HBox(col); row.setAlignment(me ? Pos.CENTER_RIGHT : Pos.CENTER_LEFT); messages.getChildren().add(row);
     }
 }

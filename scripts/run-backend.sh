@@ -3,4 +3,5 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 docker compose up -d db mongo
-SPRING_PROFILES_ACTIVE=dev mvn -q -pl backend -am spring-boot:run
+SPRING_PROFILES_ACTIVE=dev mvn -q -pl backend -am -DskipTests install
+SPRING_PROFILES_ACTIVE=dev mvn -q -f backend/pom.xml spring-boot:run

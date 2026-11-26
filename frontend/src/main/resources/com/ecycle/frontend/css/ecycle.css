@@ -49,6 +49,11 @@
 .product-card { -fx-background-color: rgba(11,22,49,0.9); -fx-background-radius: 14; -fx-border-color: rgba(34,211,238,0.20); -fx-border-radius: 14; -fx-cursor: hand; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.5), 14, 0, 0, 3); }
 .product-card:hover { -fx-border-color: #22d3ee; -fx-effect: dropshadow(gaussian, rgba(34,211,238,0.55), 20, 0.1, 0, 0); }
 .photo-ph { -fx-background-color: linear-gradient(to bottom right, #0c2a5a, #0e7490); -fx-background-radius: 10; }
+.chat-bubble { -fx-padding: 10 14; -fx-background-radius: 16; -fx-border-radius: 16; }
+.chat-bubble-own { -fx-background-color: linear-gradient(to bottom right, rgba(8,145,178,0.95), rgba(13,116,144,0.95)); -fx-border-color: rgba(103,232,249,0.55); }
+.chat-bubble-other { -fx-background-color: rgba(19,35,72,0.98); -fx-border-color: rgba(148,163,184,0.28); }
+.chat-meta { -fx-text-fill: #a5f3fc; -fx-font-size: 10px; }
+.chat-body { -fx-text-fill: #f1f7ff; -fx-font-size: 13px; }
 .tree-name { -fx-font-weight: bold; }
 
 .btn-primary { -fx-background-color: linear-gradient(to bottom, #22d3ee, #0891b2); -fx-text-fill: #04121f; -fx-font-weight: bold; -fx-background-radius: 8; -fx-padding: 8 18; -fx-cursor: hand; }

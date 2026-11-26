@@ -7,7 +7,8 @@ If the key is missing or Gemini is unreachable, the rule-based fallback still an
 
 ## 1. Get a Gemini API key
 1. Open https://aistudio.google.com/apikey, sign in, **Create API key**.
-2. Keep it secret (never commit it). Model names change; if `gemini-3.8-flash` is rejected, copy a current Flash model id from AI Studio into `ASSISTANT_MODEL`.
+2. Keep it secret (never commit it). If `gemini-3.1-flash-lite` is unavailable for your API key, copy an available model id from AI Studio into `ASSISTANT_MODEL`.
+3. Copy `.env.example` to `.env` in the project root and set `ASSISTANT_API_KEY` there. The backend imports this file on startup; `.env` is ignored by Git.
 
 ## 2. Install prerequisites
 - JDK 21 (IntelliJ: File > Project Structure > SDKs > Add JDK > Download JDK > 21, e.g. Temurin)
@@ -21,7 +22,6 @@ If the key is missing or Gemini is unreachable, the rule-based fallback still an
 3. **File > Project Structure > Project**: SDK = 21, language level = 21.
 4. Settings > Build > Compiler > Annotation Processors: **Enable annotation processing** (the code uses Lombok). Install the Lombok plugin if IntelliJ asks.
 5. Maven tool window > `ecycle` > Lifecycle > **install** (or `mvn -DskipTests install`) so `shared` is built first.
-   Note: the README says the Spring/JavaFX code was never compiled, so fix any first-build compile errors before going further.
 
 ## 4. Start the databases
 In IntelliJ's terminal at the project root:
@@ -33,12 +33,7 @@ docker compose up -d db mongo
 Run > Edit Configurations > **+ Spring Boot** (or *Application*) with:
 - Main class: `com.ecycle.backend.EcycleApplication`, module `ecycle-backend`
 - Active profiles: `dev` (demo data, mock payments, ephemeral JWT secret)
-- Environment variables (paste in the "Environment variables" field):
-```
-ASSISTANT_PROVIDER=gemini;ASSISTANT_API_KEY=YOUR_GEMINI_KEY;ASSISTANT_MODEL=gemini-3.8-flash
-```
-Run it. The log should show `AI assistant: LangChain4j with model gemini-3.8-flash at https://generativelanguage.googleapis.com/v1beta/openai/`.
-If it says "rule-based fallback", the key was not picked up.
+With a key in `.env`, the log should show `AI assistant: LangChain4j with model gemini-3.1-flash-lite at https://generativelanguage.googleapis.com/v1beta/openai/`. Without a key, the app logs that it is using rule-based mode. Gemini errors also fall back to rules, and each reply shows which mode answered.
 
 ## 6. Run the desktop client
 Add a **Maven** run configuration: command line `-pl frontend -am javafx:run`, or run `scripts/run-frontend.bat`/`.sh`.
@@ -50,7 +45,7 @@ Log in with `buyer@ecycle.local` / `Buyer@123`, open **Eco-Assistant** and ask, 
 ```bash
 curl https://generativelanguage.googleapis.com/v1beta/openai/chat/completions \
   -H "Authorization: Bearer $GEMINI_API_KEY" -H "Content-Type: application/json" \
-  -d '{"model":"gemini-3.8-flash","messages":[{"role":"user","content":"hi"}]}'
+  -d '{"model":"gemini-3.1-flash-lite","messages":[{"role":"user","content":"hi"}]}'
 ```
 A 400/404 about the model means pick another model id. A 429 means free-tier rate limits.
 
@@ -82,7 +77,7 @@ ADMIN_EMAIL=you@example.com  ADMIN_PASSWORD=<strong>
 PUBLIC_BASE_URL=https://your-api.example.com
 ASSISTANT_PROVIDER=gemini
 ASSISTANT_API_KEY=<Gemini key>      (store as a secret)
-ASSISTANT_MODEL=gemini-3.8-flash
+ASSISTANT_MODEL=gemini-3.1-flash-lite
 PAYMENT_PROVIDER=mock               (or razorpay with RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET)
 ```
 Persistent disk: mount a volume at `/app/data/uploads` (listing images/evidence), or uploaded files vanish on redeploy.

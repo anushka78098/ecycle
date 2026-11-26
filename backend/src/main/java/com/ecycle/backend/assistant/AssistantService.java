@@ -42,7 +42,9 @@ public class AssistantService {
         } else { reply = new RuleBasedAssistant(actions, me, tools).answer(req.message()); mode = "RULES"; }
         if (reply == null || reply.isBlank()) reply = "Sorry, I could not produce an answer. Please rephrase.";
         save(conv.getId(), me.id(), "assistant", reply, mode, tools.toolsUsed());
-        conv.setUpdatedAt(Instant.now()); conversations.save(conversations.findById(conv.getId()).orElse(conv)).setUpdatedAt(Instant.now());
+        AssistantConversationDoc updated = conversations.findById(conv.getId()).orElse(conv);
+        updated.setUpdatedAt(Instant.now());
+        conversations.save(updated);
         return new AssistantReplyDto(conv.getId(), reply, mode, tools.toolsUsed(), tools.proposals());
     }
 
