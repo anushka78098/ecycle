@@ -1,0 +1,77 @@
+server:
+  port: ${PORT:8080}
+  error:
+    include-message: never
+    include-stacktrace: never
+spring:
+  application:
+    name: ecycle-backend
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/ecycle}
+    username: ${DB_USER:ecycle}
+    password: ${DB_PASSWORD:ecycle}
+  data:
+    mongodb:
+      uri: ${MONGO_URI:mongodb://localhost:27017/ecycle}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        jdbc.time_zone: UTC
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 40MB
+  mail:
+    host: ${MAIL_HOST:localhost}
+    port: ${MAIL_PORT:25}
+    username: ${MAIL_USER:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail.smtp.auth: ${MAIL_SMTP_AUTH:false}
+      mail.smtp.starttls.enable: ${MAIL_STARTTLS:false}
+app:
+  jwt:
+    secret: ${JWT_SECRET:}            # >= 32 chars; required unless app.dev-mode=true
+    expiry-minutes: ${JWT_EXPIRY_MINUTES:480}
+  storage-dir: ${FILE_STORAGE_DIR:./data/uploads}
+  dev-mode: ${APP_DEV_MODE:false}
+  seed-demo: ${SEED_DEMO:false}
+  admin:
+    email: ${ADMIN_EMAIL:admin@ecycle.local}
+    password: ${ADMIN_PASSWORD:}      # bootstrap admin is created only when set (dev profile sets a default)
+  google:
+    client-id: ${GOOGLE_CLIENT_ID:}   # OAuth client ID from Google Cloud Console; enables "Sign in with Google"
+  mail:
+    enabled: ${MAIL_ENABLED:false}
+    from: ${MAIL_FROM:no-reply@ecycle.local}
+  payment:
+    provider: ${PAYMENT_PROVIDER:mock}   # mock | razorpay
+    razorpay:
+      key-id: ${RAZORPAY_KEY_ID:}
+      key-secret: ${RAZORPAY_KEY_SECRET:}
+  public-base-url: ${PUBLIC_BASE_URL:http://localhost:8080}   # embedded in certificate QR codes
+  certificate:
+    signing-secret: ${CERT_SIGNING_SECRET:}   # HMAC key for certificates; falls back to a key derived from JWT_SECRET
+  sanitization:
+    require-checklist: ${REQUIRE_WIPE_CHECKLIST:false}   # true: the legacy free-text sanitization endpoint is rejected
+  assistant:
+    provider: ${ASSISTANT_PROVIDER:auto}      # auto (Gemini when a key is set) | gemini | openai | none (rule-based only)
+    api-key: ${ASSISTANT_API_KEY:}
+    base-url: ${ASSISTANT_BASE_URL:}   # blank = Gemini (https://generativelanguage.googleapis.com/v1beta/openai/); or e.g. http://localhost:11434/v1 (Ollama)
+    model: ${ASSISTANT_MODEL:}   # blank = gemini-3.8-flash (gpt-4o-mini when provider=openai)
+    temperature: ${ASSISTANT_TEMPERATURE:0.2}
+    timeout-seconds: ${ASSISTANT_TIMEOUT_SECONDS:60}
+    memory-messages: ${ASSISTANT_MEMORY_MESSAGES:20}
+    per-minute: ${ASSISTANT_PER_MINUTE:15}
+  rate-limit:
+    per-minute: ${RATE_LIMIT_PER_MINUTE:20}
+logging:
+  level:
+    root: INFO
+    com.ecycle: INFO

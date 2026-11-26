@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<?import com.ecycle.frontend.component.TechBackground?>
+<BorderPane xmlns="http://javafx.com/javafx/21" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.ecycle.frontend.view.ShellController" styleClass="app-root">
+  <left>
+    <VBox styleClass="sidebar" prefWidth="250" spacing="6">
+      <padding><Insets top="20" right="12" bottom="16" left="12"/></padding>
+      <Label fx:id="brandLabel" text="E-CYCLE" styleClass="brand"/>
+      <Label fx:id="roleLabel" styleClass="sidebar-role"/>
+      <VBox fx:id="navBox" spacing="3" VBox.vgrow="ALWAYS"/>
+      <Label fx:id="userLabel" styleClass="sidebar-user" wrapText="true"/>
+    </VBox>
+  </left>
+  <top>
+    <HBox styleClass="topbar" spacing="12" alignment="CENTER_LEFT">
+      <padding><Insets top="10" right="20" bottom="10" left="20"/></padding>
+      <TextField fx:id="search" promptText="Search the marketplace (press Enter)" styleClass="search-field" prefWidth="380"/>
+      <Region HBox.hgrow="ALWAYS"/>
+      <ComboBox fx:id="roleSwitch" visible="false" managed="false"/>
+      <Button fx:id="bell" onAction="#onBell" styleClass="icon-btn" text="Notifications"/>
+      <MenuButton fx:id="profileMenu" styleClass="profile-menu">
+        <items>
+          <MenuItem text="My profile" onAction="#onProfile"/>
+          <SeparatorMenuItem/>
+          <MenuItem text="Sign out" onAction="#onLogout"/>
+        </items>
+      </MenuButton>
+    </HBox>
+  </top>
+  <center>
+    <StackPane>
+      <TechBackground lite="true"/>
+      <StackPane fx:id="content"/>
+    </StackPane>
+  </center>
+</BorderPane>

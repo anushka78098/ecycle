@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<StackPane xmlns="http://javafx.com/javafx/21" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.ecycle.frontend.view.ForgotController" styleClass="auth-panel">
+  <VBox maxWidth="420" spacing="12">
+    <Label text="Reset your password" styleClass="auth-title"/>
+    <Label text="Step 1: enter your account email. We email a one-time reset code that expires in 30 minutes." styleClass="muted" wrapText="true"/>
+    <TextField fx:id="email" promptText="you@example.com" styleClass="input"/>
+    <Button text="Send reset code" onAction="#onSend" styleClass="btn-secondary" maxWidth="Infinity"/>
+    <Separator/>
+    <Label text="Step 2: enter the code and a new password" styleClass="muted"/>
+    <TextField fx:id="code" promptText="Reset code" styleClass="input"/>
+    <PasswordField fx:id="newPassword" promptText="New password (min 8 characters)" styleClass="input"/>
+    <Label fx:id="status" wrapText="true"/>
+    <Button text="Set new password" onAction="#onReset" styleClass="btn-primary" maxWidth="Infinity"/>
+    <Hyperlink text="Back to sign in" onAction="#onBack"/>
+  </VBox>
+</StackPane>

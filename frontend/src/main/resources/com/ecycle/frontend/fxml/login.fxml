@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<HBox xmlns="http://javafx.com/javafx/21" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.ecycle.frontend.view.LoginController" styleClass="auth-root">
+  <VBox fx:id="hero" styleClass="auth-hero" prefWidth="520" alignment="CENTER_LEFT" spacing="18">
+    <padding><Insets top="40" right="48" bottom="40" left="48"/></padding>
+    <Label fx:id="brand" text="E-CYCLE" styleClass="hero-brand"/>
+    <Label text="Give electronics a second life." styleClass="hero-title" wrapText="true"/>
+    <Label text="A circular marketplace for reuse, repair, refurbishment and certified recycling, with passports, auctions and verified data destruction." styleClass="hero-sub" wrapText="true"/>
+  </VBox>
+  <StackPane HBox.hgrow="ALWAYS" styleClass="auth-panel">
+    <VBox maxWidth="400" spacing="14" alignment="CENTER_LEFT">
+      <Label text="Welcome back" styleClass="auth-title"/>
+      <Label text="Sign in to continue" styleClass="muted"/>
+      <Label text="Email"/>
+      <TextField fx:id="email" promptText="you@example.com" styleClass="input"/>
+      <Label text="Password"/>
+      <StackPane>
+        <PasswordField fx:id="passwordHidden" promptText="Your password" styleClass="input"/>
+        <TextField fx:id="passwordShown" promptText="Your password" styleClass="input" visible="false"/>
+      </StackPane>
+      <CheckBox fx:id="showPassword" text="Show password"/>
+      <Label fx:id="error" styleClass="error-text" wrapText="true"/>
+      <Button fx:id="loginBtn" text="Sign in" onAction="#onLogin" styleClass="btn-primary" maxWidth="Infinity" defaultButton="true"/>
+      <Label text="or" styleClass="muted" maxWidth="Infinity" alignment="CENTER"/>
+      <Button fx:id="googleBtn" text="Continue with Google" onAction="#onGoogle" styleClass="btn-secondary" maxWidth="Infinity"/>
+      <HBox spacing="8" alignment="CENTER_LEFT">
+        <Label text="New here? Join as" styleClass="muted"/>
+        <ComboBox fx:id="googleRole" prefWidth="110"/>
+      </HBox>
+      <HBox spacing="8" alignment="CENTER">
+        <Hyperlink text="Create an account" onAction="#onRegister"/>
+        <Label text="|" styleClass="muted"/>
+        <Hyperlink text="Forgot password?" onAction="#onForgot"/>
+      </HBox>
+    </VBox>
+  </StackPane>
+</HBox>

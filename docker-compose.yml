@@ -1,0 +1,61 @@
+# Local infrastructure: PostgreSQL (users, products, orders, pickups, certificates, eco-points, custody)
+# and MongoDB (chat messages, chatbot history, notifications). Credentials match application.yml defaults.
+#   docker compose up -d                     -> databases only (run the backend with scripts/run-backend.sh)
+#   docker compose --profile app up -d --build -> databases + backend container
+#   docker compose --profile ai up -d        -> also starts a local Ollama server for the assistant
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: ecycle-db
+    environment:
+      POSTGRES_DB: ecycle
+      POSTGRES_USER: ecycle
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-ecycle}
+    ports: ["5432:5432"]
+    volumes: ["ecycle-pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ecycle -d ecycle"]
+      interval: 5s
+      retries: 10
+  mongo:
+    image: mongo:7
+    container_name: ecycle-mongo
+    ports: ["27017:27017"]
+    volumes: ["ecycle-mongodata:/data/db"]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      retries: 10
+  api:
+    profiles: ["app"]
+    build: { context: ., dockerfile: backend/Dockerfile }
+    container_name: ecycle-api
+    depends_on: { db: { condition: service_healthy }, mongo: { condition: service_healthy } }
+    environment:
+      DB_URL: jdbc:postgresql://db:5432/ecycle
+      DB_PASSWORD: ${DB_PASSWORD:-ecycle}
+      MONGO_URI: mongodb://mongo:27017/ecycle
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET (>= 32 characters) in .env}
+      CERT_SIGNING_SECRET: ${CERT_SIGNING_SECRET:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
+      ASSISTANT_PROVIDER: ${ASSISTANT_PROVIDER:-auto}
+      ASSISTANT_API_KEY: ${ASSISTANT_API_KEY:-}
+      ASSISTANT_BASE_URL: ${ASSISTANT_BASE_URL:-}
+      ASSISTANT_MODEL: ${ASSISTANT_MODEL:-gemini-3.8-flash}
+      SEED_DEMO: ${SEED_DEMO:-false}
+    ports: ["8080:8080"]
+    volumes: ["ecycle-uploads:/app/data/uploads"]
+  ollama:
+    profiles: ["ai"]
+    image: ollama/ollama:latest
+    container_name: ecycle-ollama
+    ports: ["11434:11434"]
+    volumes: ["ecycle-ollama:/root/.ollama"]
+    # then: docker exec ecycle-ollama ollama pull llama3.1  and set ASSISTANT_BASE_URL=http://localhost:11434/v1 ASSISTANT_MODEL=llama3.1
+volumes:
+  ecycle-pgdata:
+  ecycle-mongodata:
+  ecycle-uploads:
+  ecycle-ollama:
